@@ -3,21 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Liquid Glass - Magnetic UI</title>
+    <title>Liquid Glass - WebGL 3D Water Simulation</title>
+    <meta name="description" content="Interactive liquid glass UI with real-time WebGL fluid physics and metaball merging bubbles.">
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 </head>
 <body>
 
-    <!-- Animated colorful background -->
-    <div class="bg-animated"></div>
+    <!-- Layer 0: WebGL Fluid Background (subtle ocean) -->
+    <canvas id="fluid-canvas"></canvas>
 
-    <!-- The Liquid Layer (where the magic metaball effect happens) -->
-    <div class="goo-container">
-        <!-- Blobs will be generated here by JS for every .magnetic element -->
-    </div>
+    <!-- Layer 1: WebGL Metaball Glass Bubbles -->
+    <canvas id="metaball-canvas"></canvas>
 
-    <!-- The Glass UI Layer -->
+    <!-- Layer 2: HTML UI Content (text only, transparent backgrounds) -->
     <div class="content-wrapper">
         <header class="header">
             <div class="logo">Liquid</div>
@@ -26,7 +25,7 @@
                 <a href="#" class="nav-link">Components</a>
                 <a href="#" class="nav-link">Documentation</a>
             </nav>
-            <button class="glass-btn btn-small magnetic">Get Theme</button>
+            <button class="glass-btn btn-small magnetic" id="btn-get-theme">Get Theme</button>
         </header>
 
         <main>
@@ -35,8 +34,8 @@
                     <h1 class="hero-title">Magnetic Liquid Glass.</h1>
                     <p class="hero-subtitle">The interface reacts to you. Move your cursor between buttons and cards to see them reach out, merge, and flow as one single liquid body.</p>
                     <div class="hero-actions">
-                        <button class="glass-btn btn-large magnetic">Explore Components</button>
-                        <button class="glass-btn btn-secondary magnetic">Read the Docs</button>
+                        <button class="glass-btn btn-large magnetic" id="btn-explore">Explore Components</button>
+                        <button class="glass-btn btn-secondary btn-large magnetic" id="btn-docs">Read the Docs</button>
                     </div>
                 </div>
             </section>
@@ -44,8 +43,7 @@
             <section class="features">
                 <h2 class="section-title">Magnetic Boxes</h2>
                 <div class="feature-grid">
-                    
-                    <div class="feature-card magnetic">
+                    <div class="feature-card magnetic" id="card-switches">
                         <div class="card-visual">
                             <div class="wg-toggle-pill">
                                 <div class="wg-toggle-knob"></div>
@@ -55,7 +53,7 @@
                         <p>Interact to see the fluid dynamics in action.</p>
                     </div>
 
-                    <div class="feature-card magnetic">
+                    <div class="feature-card magnetic" id="card-indicators">
                         <div class="card-visual">
                             <div class="wg-progress-bar">
                                 <div class="wg-progress-fill"></div>
@@ -65,153 +63,177 @@
                         <p>Progress bars that flow naturally, like water.</p>
                     </div>
 
-                    <div class="feature-card magnetic">
+                    <div class="feature-card magnetic" id="card-accents">
                         <div class="card-visual">
                             <div class="wg-badge">LIQUID</div>
                         </div>
                         <h3>Fluid Accents</h3>
                         <p>Even small elements reach out to connect.</p>
                     </div>
-
                 </div>
             </section>
         </main>
 
         <footer>
-            <p>&copy; 2026 Liquid Glass Theme.</p>
+            <p>&copy; 2026 Liquid Glass Theme. Powered by WebGL Fluid Dynamics.</p>
         </footer>
     </div>
 
-    <!-- SVG Gooey Filter Definition -->
-    <svg style="visibility: hidden; position: absolute;" width="0" height="0" xmlns="http://www.w3.org/2000/svg" version="1.1">
-        <defs>
-            <filter id="goo">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="20" result="blur" />
-                <feColorMatrix in="blur" mode="matrix" values="
-                    1 0 0 0 0  
-                    0 1 0 0 0  
-                    0 0 1 0 0  
-                    0 0 0 30 -12" result="goo" />
-                <feBlend in="SourceGraphic" in2="goo" />
-            </filter>
-        </defs>
-    </svg>
+    <script type="module">
+        import { FluidEngine } from './fluid-engine.js';
+        import { MetaballRenderer } from './metaballs.js';
 
-    <!-- Magnetic Interactions Script -->
-    <script>
+        // ============================
+        // 1. Background Fluid (subtle)
+        // ============================
+        const fluidCanvas = document.getElementById('fluid-canvas');
+        let fluid;
+        try {
+            fluid = new FluidEngine(fluidCanvas);
+            setTimeout(() => fluid.burstSplats(5), 500);
+        } catch (e) {
+            console.warn('Background fluid failed:', e);
+        }
+
+        // ============================
+        // 2. Metaball Glass Bubbles
+        // ============================
+        const metaCanvas = document.getElementById('metaball-canvas');
+        let metaballs;
+        try {
+            metaballs = new MetaballRenderer(metaCanvas);
+        } catch (e) {
+            console.warn('Metaball renderer failed:', e);
+        }
+
+        // ============================
+        // 3. Magnetic Element Tracking
+        // ============================
         const magneticElements = document.querySelectorAll('.magnetic');
-        const gooContainer = document.querySelector('.goo-container');
-        const syncPairs = [];
+        const pairs = [];
 
-        // 1. Generate the liquid blobs for all magnetic elements
-        magneticElements.forEach((el) => {
-            const blob = document.createElement('div');
-            blob.className = 'goo-blob';
-            
-            // Match the border-radius of the UI element for a perfect fit
-            const computedStyle = window.getComputedStyle(el);
-            blob.style.borderRadius = computedStyle.borderRadius;
-            
-            gooContainer.appendChild(blob);
-            
-            syncPairs.push({
-                el: el,
-                blob: blob,
-                currentTx: 0,
-                currentTy: 0,
-                baseX: 0,
-                baseY: 0,
-                width: 0,
-                height: 0
+        magneticElements.forEach(el => {
+            pairs.push({
+                el,
+                currentTx: 0, currentTy: 0,
+                velocityX: 0, velocityY: 0,
+                baseX: 0, baseY: 0,
+                width: 0, height: 0,
+                borderRadius: 12
             });
         });
 
-        // 2. Position the blobs precisely under the elements in document space
-        function updateBasePositions() {
-            // Document scroll offsets
-            const scrollX = window.pageXOffset || document.documentElement.scrollLeft;
-            const scrollY = window.pageYOffset || document.documentElement.scrollTop;
-
-            syncPairs.forEach(pair => {
-                // Temporarily remove transform to measure true static position
-                pair.el.style.transform = 'none';
-                pair.blob.style.transform = 'none';
-                
-                const rect = pair.el.getBoundingClientRect();
-                
-                // Save absolute document coordinates
-                pair.baseX = rect.left + scrollX;
-                pair.baseY = rect.top + scrollY;
-                pair.width = rect.width;
-                pair.height = rect.height;
-                
-                // Position the blob
-                pair.blob.style.left = `${pair.baseX}px`;
-                pair.blob.style.top = `${pair.baseY}px`;
-                pair.blob.style.width = `${pair.width}px`;
-                pair.blob.style.height = `${pair.height}px`;
-
-                // Restore dynamic transforms
-                pair.el.style.transform = `translate(${pair.currentTx}px, ${pair.currentTy}px)`;
-                pair.blob.style.transform = `translate(${pair.currentTx}px, ${pair.currentTy}px)`;
+        function measurePositions() {
+            pairs.forEach(p => {
+                p.el.style.transform = 'none';
+                const rect = p.el.getBoundingClientRect();
+                const scrollX = window.pageXOffset;
+                const scrollY = window.pageYOffset;
+                p.baseX = rect.left + scrollX;
+                p.baseY = rect.top + scrollY;
+                p.width = rect.width;
+                p.height = rect.height;
+                const cs = window.getComputedStyle(p.el);
+                p.borderRadius = parseFloat(cs.borderRadius) || 12;
+                p.el.style.transform = `translate(${p.currentTx}px, ${p.currentTy}px)`;
             });
         }
 
-        // 3. Track mouse in absolute document space
         let mouseX = window.innerWidth / 2;
         let mouseY = window.innerHeight / 2;
+        let mouseViewX = window.innerWidth / 2;
+        let mouseViewY = window.innerHeight / 2;
 
-        window.addEventListener('mousemove', (e) => {
+        window.addEventListener('mousemove', e => {
             mouseX = e.pageX;
             mouseY = e.pageY;
+            mouseViewX = e.clientX;
+            mouseViewY = e.clientY;
         });
+        window.addEventListener('resize', measurePositions);
+        window.addEventListener('scroll', measurePositions, { passive: true });
 
-        window.addEventListener('resize', updateBasePositions);
-        
-        // Ensure fonts/layout are loaded before taking measurements
-        window.addEventListener('load', () => {
-            updateBasePositions();
-            requestAnimationFrame(animate);
-        });
+        // ============================
+        // 4. Main Animation Loop
+        // ============================
+        let startTime = performance.now();
 
-        // 4. The Magnetic Animation Loop
         function animate() {
-            syncPairs.forEach(pair => {
-                // Center point of the static element
-                const centerX = pair.baseX + pair.width / 2;
-                const centerY = pair.baseY + pair.height / 2;
-                
-                // Vector from center to mouse
+            const t = (performance.now() - startTime) / 1000;
+
+            // Background fluid step
+            if (fluid) fluid.step();
+
+            // Magnetic physics with spring damping
+            const scrollX = window.pageXOffset;
+            const scrollY = window.pageYOffset;
+            const blobData = [];
+
+            pairs.forEach(p => {
+                const centerX = p.baseX + p.width / 2;
+                const centerY = p.baseY + p.height / 2;
                 const dx = mouseX - centerX;
                 const dy = mouseY - centerY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                // Magnetic config
-                const maxDistance = 300; // How close the mouse needs to be to pull the element
-                let targetTx = 0;
-                let targetTy = 0;
-                
-                if (distance < maxDistance) {
-                    // Calculate pull strength (closer = stronger)
-                    const pullForce = Math.pow((maxDistance - distance) / maxDistance, 2);
-                    
-                    // Move the element towards the mouse (max 30% of the distance)
-                    targetTx = dx * pullForce * 0.3;
-                    targetTy = dy * pullForce * 0.3;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                const maxDist = 350;
+                let targetTx = 0, targetTy = 0;
+
+                if (dist < maxDist) {
+                    const force = Math.pow((maxDist - dist) / maxDist, 2);
+                    targetTx = dx * force * 0.35;
+                    targetTy = dy * force * 0.35;
                 }
-                
-                // Smooth spring physics (interpolation)
-                pair.currentTx += (targetTx - pair.currentTx) * 0.1;
-                pair.currentTy += (targetTy - pair.currentTy) * 0.1;
-                
-                // Apply the exact same transform to BOTH the glass UI and the liquid blob behind it
-                const transformStr = `translate(${pair.currentTx}px, ${pair.currentTy}px)`;
-                pair.el.style.transform = transformStr;
-                pair.blob.style.transform = transformStr;
+
+                // Spring physics with damping
+                const spring = 0.08;
+                const damping = 0.82;
+                p.velocityX = (p.velocityX + (targetTx - p.currentTx) * spring) * damping;
+                p.velocityY = (p.velocityY + (targetTy - p.currentTy) * spring) * damping;
+                p.currentTx += p.velocityX;
+                p.currentTy += p.velocityY;
+
+                p.el.style.transform = `translate(${p.currentTx}px, ${p.currentTy}px)`;
+
+                // Compute viewport position for metaball
+                const viewX = (p.baseX - scrollX) + p.currentTx + p.width / 2;
+                const viewY = (p.baseY - scrollY) + p.currentTy + p.height / 2;
+
+                blobData.push({
+                    cx: viewX,
+                    cy: viewY,
+                    hw: p.width / 2 + 2,
+                    hh: p.height / 2 + 2,
+                    radius: Math.min(p.borderRadius, p.width / 2, p.height / 2)
+                });
             });
+
+            // Check if cursor is near any element (for cursor blob activation)
+            let cursorNearElement = false;
+            const activationDist = 250;
+            for (const b of blobData) {
+                const dx = mouseViewX - b.cx;
+                const dy = mouseViewY - b.cy;
+                if (Math.sqrt(dx * dx + dy * dy) < activationDist) {
+                    cursorNearElement = true;
+                    break;
+                }
+            }
+
+            // Render metaball glass bubbles
+            if (metaballs) {
+                metaballs.setBlobs(blobData);
+                metaballs.setCursor(mouseViewX, mouseViewY, 55, cursorNearElement);
+                metaballs.render(t);
+            }
 
             requestAnimationFrame(animate);
         }
+
+        window.addEventListener('load', () => {
+            measurePositions();
+            requestAnimationFrame(animate);
+        });
     </script>
 </body>
 </html>
